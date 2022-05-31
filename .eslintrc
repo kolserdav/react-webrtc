@@ -22,7 +22,7 @@
     "sourceType": "module"
   },
   "plugins": ["@typescript-eslint", "react", "prettier", "eslint-plugin-prettier"],
-  "ignorePatterns": ["src/dist/*", "peerjs-server/*", "example/*"],
+  "ignorePatterns": ["src/dist/*"],
   "rules": {
     "react/react-in-jsx-scope": 2,
     "prettier/prettier": 1,
@@ -45,6 +45,7 @@
     "no-plusplus": 0,
     "import/prefer-default-export": 1,
     "jsx-a11y/media-has-caption": 0,
-    "no-nested-ternary": 0
+    "no-nested-ternary": 0,
+    "no-param-reassign": 1
   }
 }
