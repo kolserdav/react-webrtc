@@ -2,72 +2,57 @@ import { PeerMessageType, Resource, PeerMessageValue } from '../utils/constants'
 import { log } from '../utils/lib';
 
 class Core {
-  readonly connection: WebSocket;
+  peerConnection: RTCPeerConnection | null = new RTCPeerConnection({
+    iceServers: [
+      {
+        urls: ['stun:stun.l.google.com:19302'],
+      },
+    ],
+  });
 
-  peerConnection: RTCPeerConnection | null;
+  connection: WebSocket;
 
-  handleTrackEvent: (ev: RTCTrackEvent) => any;
+  userId: number;
 
-  constructor({ handleTrackEvent }: { handleTrackEvent: (ev: RTCTrackEvent) => any }) {
-    this.connection = new WebSocket('ws://localhost:8000/peer', 'json');
-    this.peerConnection = new RTCPeerConnection({
-      iceServers: [
-        {
-          urls: ['stun:stun.l.google.com:19302'],
-        },
-      ],
-    });
-    this.handleTrackEvent = handleTrackEvent;
-  }
-
-  public handleMessage({ msg }: { msg: MessageEvent<PeerMessageValue<any>> }) {
-    switch (msg.type) {
-      case 'video-offer': // Invitation and offer to chat
-        handleVideoOfferMsg(msg);
-        break;
-
-      case 'video-answer': // Callee has answered our offer
-        handleVideoAnswerMsg(msg);
-        break;
-
-      case 'new-ice-candidate': // A new ICE candidate has been received
-        handleNewICECandidateMsg(msg);
-        break;
-
-      case 'hang-up': // The other peer has hung up the call
-        handleHangUpMsg(msg);
-        break;
-
-      // Unknown message; output to console for debugging.
-
-      default:
-        log_error('Unknown message received:');
-        log_error(msg);
-    }
-  }
-
-  public createPeerConnection({
+  constructor({
     userId,
-    targetUserId,
+    host = 'localhost',
+    port = 8000,
+    resource = Resource.peer,
   }: {
     userId: number;
-    targetUserId: number;
-  }): RTCPeerConnection | null {
-    if (this.peerConnection) {
-      log('info', 'Create peer conection');
-      this.peerConnection.onicecandidate = this.handleICECandidateEvent({ targetUserId });
-      this.peerConnection.oniceconnectionstatechange = this.handleICEConnectionStateChangeEvent;
-      this.peerConnection.onicegatheringstatechange = this.handleICEGatheringStateChangeEvent;
-      this.peerConnection.onsignalingstatechange = this.handleSignalingStateChangeEvent;
-      this.peerConnection.onnegotiationneeded = this.handleNegotiationNeededEvent({
-        targetUserId,
-        userId,
-      });
-      this.peerConnection.ontrack = this.handleTrackEvent;
-      return this.peerConnection;
+    host?: string;
+    port?: number;
+    resource?: Resource.peer;
+  }) {
+    this.connection = this.setConnection({ host, port, resource });
+    this.userId = userId;
+  }
+
+  public getConnection() {
+    return this.connection;
+  }
+
+  public getUserId() {
+    return this.userId;
+  }
+
+  private setConnection({
+    host,
+    port,
+    resource,
+  }: {
+    host?: string;
+    port?: number;
+    resource?: Resource.peer;
+  }) {
+    let scheme = 'ws';
+    if (document.location.protocol === 'https:') {
+      scheme += 's';
     }
-    log('warn', 'Peer connection is', this.peerConnection);
-    return null;
+    // ws://localhost:8000/peer
+    this.connection = new WebSocket(`${scheme}://${host}:${port}/${resource}`, 'json');
+    return this.connection;
   }
 
   public sendToServer<T extends PeerMessageType>(msg: PeerMessageValue<T>) {
@@ -75,20 +60,6 @@ class Core {
     const { type } = msg;
     log('info', 'Sending message', { type });
     this.connection.send(msgJSON);
-  }
-
-  private handleICECandidateEvent({ targetUserId }: { targetUserId: number }) {
-    return (event: RTCPeerConnectionIceEvent) => {
-      if (event.candidate) {
-        log('info', `Outgoing ICE candidate: ${event.candidate.candidate}`);
-        this.sendToServer<PeerMessageType.candidate>({
-          type: PeerMessageType.candidate,
-          targetUserId,
-          resource: Resource.peer,
-          candidate: event.candidate,
-        });
-      }
-    };
   }
 
   public closeVideoCall(): 0 | 1 {
@@ -105,85 +76,6 @@ class Core {
       return 0;
     }
     log('warn', 'Peer connection cant close that is', this.peerConnection);
-    return 1;
-  }
-
-  private handleICEConnectionStateChangeEvent(event: Event): 1 | 0 {
-    if (this.peerConnection) {
-      log('info', `*** ICE connection state changed to ${this.peerConnection.iceConnectionState}`);
-      switch (this.peerConnection.iceConnectionState) {
-        case 'closed':
-        case 'failed':
-        case 'disconnected':
-          this.closeVideoCall();
-          break;
-      }
-      return 0;
-    }
-    log('warn', 'Can not change state of ice peer connection that is', this.peerConnection);
-    return 1;
-  }
-
-  private handleNegotiationNeededEvent({
-    userId,
-    targetUserId,
-  }: {
-    userId: number;
-    targetUserId: number;
-  }) {
-    return async () => {
-      if (this.peerConnection) {
-        log('info', '---> Creating offer');
-        const offer = await this.peerConnection.createOffer();
-        await this.peerConnection.setLocalDescription(offer);
-        const { localDescription } = this.peerConnection;
-        if (localDescription) {
-          log('info', '---> Sending offer to remote peer');
-          this.sendToServer({
-            userId,
-            targetUserId,
-            resource: Resource.peer,
-            type: PeerMessageType.offer,
-            sdp: localDescription,
-          });
-          return 0;
-        }
-        log('error', 'Local description not set');
-        return 1;
-      }
-      log('warn', 'Offer can not created that peerConnection is', this.peerConnection);
-      return 1;
-    };
-  }
-
-  private handleSignalingStateChangeEvent(ev: Event): 1 | 0 {
-    if (this.peerConnection) {
-      log('info', `*** WebRTC signaling state changed to: ${this.peerConnection.signalingState}`);
-      switch (this.peerConnection.signalingState) {
-        case 'closed':
-          this.closeVideoCall();
-          break;
-      }
-      return 0;
-    }
-    log(
-      'warn',
-      'Can not handle signaling state chage event because peerConnections is',
-      this.peerConnection
-    );
-    return 1;
-  }
-
-  private handleICEGatheringStateChangeEvent(ev: Event): 1 | 0 {
-    if (this.peerConnection) {
-      log('info', `*** ICE gathering state changed to: ${this.peerConnection.iceGatheringState}`);
-      return 0;
-    }
-    log(
-      'warn',
-      'Handle ICE fathering state is wrong because peerConnection is',
-      this.peerConnection
-    );
     return 1;
   }
 }
