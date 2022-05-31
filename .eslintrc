@@ -46,6 +46,9 @@
     "import/prefer-default-export": 1,
     "jsx-a11y/media-has-caption": 0,
     "no-nested-ternary": 0,
-    "no-param-reassign": 1
+    "no-param-reassign": 1,
+    "no-shadow": 0,
+    "@typescript-eslint/no-shadow": 2,
+    "@typescript-eslint/no-unused-vars": 1
   }
 }
