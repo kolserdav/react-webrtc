@@ -10,3 +10,13 @@ export const getTarget = () => {
   } = window;
   return parseInt(pathname.replace(/^\//, ''), 10);
 };
+
+export const parseMessage = (message: string): object => {
+  let result = {};
+  try {
+    result = JSON.parse(message);
+  } catch (e) {
+    /** */
+  }
+  return result;
+};

@@ -20,6 +20,7 @@ export interface Candidate extends PeerServerMessage {
   type: PeerMessageType.candidate;
   userId: number;
   candidate: RTCIceCandidateInit | undefined;
+  sdpMid: string;
 }
 
 export interface Offer extends PeerServerMessage {

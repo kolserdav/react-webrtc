@@ -82,79 +82,14 @@ export const useOnClose = (conn: WebSocket | null) => {
   return closeEvent;
 };
 
-export const useHandleCandidate = ({
-  core,
-  msg,
-}: {
-  msg: Candidate;
-  core: Core;
-}): RTCIceCandidate | null => {
-  const [candidate, setCandidate] = useState<RTCIceCandidate | null>(null);
-  useEffect(() => {
-    if (!core.peerConnection) {
-      log('warn', 'Failed create ice candidate because peerConnection is', core.peerConnection);
-      return;
-    }
-    const cand = new RTCIceCandidate(msg.candidate);
-    core.peerConnection
-      .addIceCandidate(cand)
-      .then(() => {
-        log('info', `Adding received ICE candidate: ${JSON.stringify(cand)}`);
-        setCandidate(cand);
-      })
-      .catch((e) => {
-        log('error', 'Set candidate error', e);
-      });
-  }, [core.peerConnection, msg.candidate]);
-  return candidate;
-};
-
+/**
+ * handleVideoOfferMsg
+ */
 export const useHandleOffer = ({ msg, core }: { msg: Offer; core: Core }): Video | null => {
-  const { userId, targetUserId, sdp } = msg;
+  const { userId, targetUserId, sdp, type } = msg;
   const [video, setVideo] = useState<Video | null>(null);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [answer, setAnswer] = useState<boolean>(false);
-
-  /**
-   * Set media stream
-   */
-  useEffect(() => {
-    if (sdp) {
-      const desc = new RTCSessionDescription(sdp);
-      const localStream: MediaStream = new MediaStream();
-      const mSProm: Promise<MediaStream | null> = new Promise((resolve) => {
-        if (!core.peerConnection) {
-          log('error', 'Failed handle offer stream. Peer connection is', core.peerConnection);
-          resolve(null);
-          return;
-        }
-        core.peerConnection
-          .setRemoteDescription(desc)
-          .then(() => {
-            log('info', 'Setting up the local media stream...');
-            return navigator.mediaDevices.getUserMedia(MediaConstraints);
-          })
-          .then((stream) => {
-            log('info', '-- Local video stream obtained');
-            localStream.getTracks().forEach((track) => {
-              if (!core.peerConnection) {
-                log('warn', 'failed to add offer video track');
-              } else {
-                core.peerConnection.addTrack(track, localStream);
-              }
-            });
-            resolve(stream);
-          })
-          .catch((e) => {
-            log('error', 'Failed get user media', e.mesage);
-            resolve(null);
-          });
-      });
-      mSProm.then((stream) => {
-        setMediaStream(stream);
-      });
-    }
-  }, [core.peerConnection, sdp]);
 
   /**
    * Send answer
@@ -211,24 +146,9 @@ export const useHandleOffer = ({ msg, core }: { msg: Offer; core: Core }): Video
   return video;
 };
 
-export const useOnMessage = (conn: WebSocket) => {
-  const [messageEvent, setMessageEvent] = useState<MessageEvent<any>>();
-  useEffect(() => {
-    // eslint-disable-next-line no-param-reassign
-    conn.onmessage = (e) => {
-      log('info', 'message', e);
-      setMessageEvent(e);
-    };
-    return () => {
-      // eslint-disable-next-line no-param-reassign
-      conn.onmessage = () => {
-        /** */
-      };
-    };
-  }, [conn]);
-  return messageEvent;
-};
-
+/**
+ * createPeerConnection
+ */
 export const useIceCandidateHandlers = ({ userId, core }: { userId: number; core: Core }) => {
   const _core = core;
   const [sessionDescriptionInit, setSessionDescriptionInit] =
@@ -247,6 +167,7 @@ export const useIceCandidateHandlers = ({ userId, core }: { userId: number; core
               userId,
               resource: Resource.peer,
               candidate: event.candidate,
+              sdpMid: userId.toString(),
             });
           }
         };

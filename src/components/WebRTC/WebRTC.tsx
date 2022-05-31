@@ -2,10 +2,8 @@ import React, { useMemo, useEffect, useCallback } from 'react';
 import {
   useOnClose,
   useOnError,
-  useOnMessage,
   useOnOpen,
   useHandleOffer,
-  useHandleCandidate,
   useIceCandidateHandlers,
 } from './WebRTC.hooks';
 import {
@@ -14,46 +12,12 @@ import {
   PeerMessageValue,
   log,
   getUniqueUserId,
-  getTarget,
+  Offer,
   Resource,
+  parseMessage,
 } from '../../utils';
 import s from './WebRTC.module.scss';
 import Core from '../../core';
-
-interface MessageReducer {
-  msg: MessageEvent<PeerMessageValue<any>>;
-}
-
-const messageHandler = ({
-  message,
-  userId,
-  targetUserId,
-  core,
-}: {
-  message: MessageEvent<any>;
-  userId: number;
-  targetUserId: number;
-  core: Core;
-}) => {
-  const msg: any = JSON.parse(message.data);
-  switch (msg.type) {
-    case PeerMessageType.offer:
-      break;
-
-    case PeerMessageType.answer:
-      // handleVideoAnswerMsg(msg);
-      break;
-
-    case PeerMessageType.candidate:
-      // handleNewICECandidateMsg(msg);
-      break;
-    case PeerMessageType.close:
-      // handleHangUpMsg(msg);
-      break;
-    default:
-      log('warn', 'Default case', msg);
-  }
-};
 
 function WebRTC() {
   const core = useMemo(() => new Core({ userId: getUniqueUserId() }), []);
@@ -61,32 +25,49 @@ function WebRTC() {
   const connection = core.getConnection();
   const open = useOnOpen(connection);
   const error = useOnError(connection);
-  const message = useOnMessage(connection);
+
   const close = useOnClose(connection);
-  const candidate = useHandleCandidate({
-    core,
-    msg: {
-      userId,
-      type: PeerMessageType.candidate,
-      resource: Resource.peer,
-      candidate: {},
-    },
-  });
   const { sessionDescriptionInit } = useIceCandidateHandlers({ core, userId });
+  console.log(31, sessionDescriptionInit);
   const offer = useHandleOffer({
     core,
-    msg: {
-      type: PeerMessageType.offer,
-      resource: Resource.peer,
-      userId,
-      targetUserId: getTarget(),
-      sdp: sessionDescriptionInit,
-    },
+    msg: { userId } as Offer,
   });
-
+  console.log(36, offer);
   useEffect(() => {
-    console.log(message, 12);
-  }, [message]);
+    // eslint-disable-next-line no-param-reassign
+    connection.onmessage = (e) => {
+      log('info', 'message', e);
+      const msg: any = parseMessage(e.data);
+      switch (msg.type) {
+        case PeerMessageType.offer:
+          core.handleOfferMessage(msg, (stream) => {
+            console.log(1212, stream);
+          });
+          break;
+
+        case PeerMessageType.answer:
+          break;
+
+        case PeerMessageType.candidate:
+          core.handleCandidateMessage(msg, (cand) => {
+            console.log(434, cand);
+          });
+          break;
+        case PeerMessageType.close:
+          // handleHangUpMsg(msg);
+          break;
+        default:
+          log('warn', 'Default case', msg);
+      }
+    };
+    return () => {
+      // eslint-disable-next-line no-param-reassign
+      connection.onmessage = () => {
+        /** */
+      };
+    };
+  }, [connection]);
 
   return <section>ds</section>;
 }

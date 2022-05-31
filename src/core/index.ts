@@ -1,5 +1,12 @@
-import { PeerMessageType, Resource, PeerMessageValue } from '../utils/constants';
-import { log } from '../utils/lib';
+import {
+  PeerMessageType,
+  Resource,
+  PeerMessageValue,
+  Offer,
+  MediaConstraints,
+  log,
+  Candidate,
+} from '../utils';
 
 class Core {
   peerConnection: RTCPeerConnection | null = new RTCPeerConnection({
@@ -35,6 +42,69 @@ class Core {
 
   public getUserId() {
     return this.userId;
+  }
+
+  /**
+   * handleNewICECandidateMsg
+   */
+  public handleCandidateMessage(msg: Candidate, cb: (cand: RTCIceCandidate | null) => any) {
+    const { candidate } = msg;
+    if (!this.peerConnection) {
+      log('warn', 'Failed create ice candidate because peerConnection is', this.peerConnection);
+      cb(null);
+      return;
+    }
+    const cand = new RTCIceCandidate(candidate);
+    this.peerConnection
+      .addIceCandidate(cand)
+      .then(() => {
+        log('info', `Adding received ICE candidate: ${JSON.stringify(cand)}`);
+        cb(cand);
+      })
+      .catch((e) => {
+        log('error', 'Set candidate error', e);
+        cb(null);
+      });
+  }
+
+  /**
+   * handleVideoOfferMsg
+   */
+  public handleOfferMessage(msg: Offer, cb: (stream: MediaStream | null) => any) {
+    const { sdp } = msg;
+    if (sdp) {
+      const desc = new RTCSessionDescription(sdp);
+      const localStream: MediaStream = new MediaStream();
+      if (!this.peerConnection) {
+        log('error', 'Failed handle offer stream. Peer connection is', this.peerConnection);
+        cb(null);
+        return;
+      }
+      this.peerConnection
+        .setRemoteDescription(desc)
+        .then(() => {
+          log('info', 'Setting up the local media stream...');
+          return navigator.mediaDevices.getUserMedia(MediaConstraints);
+        })
+        .then((stream) => {
+          log('info', '-- Local video stream obtained');
+          localStream.getTracks().forEach((track) => {
+            if (!this.peerConnection) {
+              log('warn', 'failed to add offer video track');
+            } else {
+              this.peerConnection.addTrack(track, localStream);
+            }
+          });
+          cb(stream);
+        })
+        .catch((e) => {
+          log('error', 'Failed get user media', e.mesage);
+          cb(null);
+        });
+    } else {
+      log('warn', 'Message offer error because sdp is', sdp);
+      cb(null);
+    }
   }
 
   private setConnection({
