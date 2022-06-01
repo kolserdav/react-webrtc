@@ -98,7 +98,7 @@ function WebRTC() {
   useEffect(() => {
     if (core.peerConnection) {
       core.peerConnection.ontrack = (ev: RTCTrackEvent) => {
-        console.log(ev);
+        console.log(userId);
         const _stream = ev.streams[0];
         const _streams = streams.map((item) => item);
         _streams.push(_stream);
