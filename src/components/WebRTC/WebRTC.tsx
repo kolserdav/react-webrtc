@@ -1,11 +1,5 @@
 import React, { useMemo, useEffect, useCallback } from 'react';
-import {
-  useOnClose,
-  useOnError,
-  useOnOpen,
-  useHandleOffer,
-  useIceCandidateHandlers,
-} from './WebRTC.hooks';
+import { useOnClose, useOnError, useOnOpen } from './WebRTC.hooks';
 import {
   PeerMessageType,
   Video,
@@ -15,31 +9,39 @@ import {
   Offer,
   Resource,
   parseMessage,
+  getTarget,
+  isRoom,
 } from '../../utils';
 import s from './WebRTC.module.scss';
 import Core from '../../core';
 
 function WebRTC() {
-  const core = useMemo(() => new Core({ userId: getUniqueUserId() }), []);
-  const userId = core.getUserId();
+  const room = isRoom();
+  const userId = room ? getTarget() : getUniqueUserId();
+  const target = getTarget();
+  const roomLink = room
+    ? window.location.href.replace(window.location.search, '')
+    : window.location.href;
+  const core = useMemo(() => new Core({ userId }), []);
   const connection = core.getConnection();
   const open = useOnOpen(connection);
   const error = useOnError(connection);
 
   const close = useOnClose(connection);
-  const { sessionDescriptionInit } = useIceCandidateHandlers({ core, userId });
-  console.log(31, sessionDescriptionInit);
-  const offer = useHandleOffer({
-    core,
-    msg: { userId } as Offer,
-  });
-  console.log(36, offer);
+
   useEffect(() => {
     // eslint-disable-next-line no-param-reassign
-    connection.onmessage = (e) => {
-      log('info', 'message', e);
-      const msg: any = parseMessage(e.data);
+    connection.onmessage = (event) => {
+      log('info', 'message', event);
+      const msg: any = parseMessage(event.data);
+      console.log(33, msg);
       switch (msg.type) {
+        case PeerMessageType.getId:
+          core.sendToServer<PeerMessageType.setId>({
+            type: PeerMessageType.setId,
+            id: userId,
+          });
+          break;
         case PeerMessageType.offer:
           core.handleOfferMessage(msg, (stream) => {
             console.log(1212, stream);
@@ -47,6 +49,9 @@ function WebRTC() {
           break;
 
         case PeerMessageType.answer:
+          core.handleVideoAnswerMsg(msg, (ev) => {
+            console.log(56665, ev);
+          });
           break;
 
         case PeerMessageType.candidate:
@@ -69,7 +74,18 @@ function WebRTC() {
     };
   }, [connection]);
 
-  return <section>ds</section>;
+  useEffect(() => {
+    if (userId !== target) {
+      core.invite({ targetUserId: target });
+    }
+  }, []);
+
+  return (
+    <section>
+      <video />
+      <a href={roomLink}>{roomLink}</a>
+    </section>
+  );
 }
 
 export default WebRTC;

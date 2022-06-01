@@ -20,3 +20,5 @@ export const parseMessage = (message: string): object => {
   }
   return result;
 };
+
+export const isRoom = () => window.location.search === '?room=1';
