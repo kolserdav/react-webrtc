@@ -33,7 +33,6 @@ class Core {
     port?: number;
     resource?: Resource.peer;
   }) {
-    console.log(1);
     this.connection = this.setConnection({ host, port, resource });
     this.userId = userId;
   }
@@ -69,8 +68,8 @@ class Core {
       });
   }
 
-  public invite({ targetUserId }: { targetUserId: number }) {
-    this.handleIceCandidate({ targetUserId });
+  public invite({ targetUserId, userId }: { targetUserId: number; userId: number }) {
+    this.handleIceCandidate({ targetUserId, userId });
     navigator.mediaDevices
       .getUserMedia(MediaConstraints)
       .then((localStream) => {
@@ -89,7 +88,7 @@ class Core {
   }
 
   public handleOfferMessage(msg: Offer, cb: (desc: RTCSessionDescription | null) => any) {
-    const { targetUserId, sdp } = msg;
+    const { targetUserId, sdp, userId } = msg;
     if (!sdp) {
       log('warn', 'Message offer error because sdp is', sdp);
       cb(null);
@@ -100,6 +99,10 @@ class Core {
       cb(null);
       return;
     }
+    this.handleIceCandidate({
+      userId: targetUserId,
+      targetUserId: userId,
+    });
     const desc = new RTCSessionDescription(sdp);
     this.peerConnection
       .setRemoteDescription(desc)
@@ -134,77 +137,82 @@ class Core {
             return;
           }
           log('info', '------> Setting local description after creating answer');
-          this.peerConnection.setLocalDescription(answ).then(() => {
-            if (this.peerConnection) {
-              const { localDescription } = this.peerConnection;
-              if (localDescription) {
-                log('info', 'Sending answer packet back to other peer');
-                this.sendToServer({
-                  resource: Resource.peer,
-                  targetUserId,
-                  type: PeerMessageType.answer,
-                  sdp: localDescription,
-                });
-                cb(localDescription);
-              } else {
-                log('warn', 'Failed send answer because localDescription is', localDescription);
+          this.peerConnection
+            .setLocalDescription(answ)
+            .catch((err) => {
+              log('error', 'Error set local description for answer', err);
+            })
+            .then(() => {
+              if (this.peerConnection) {
+                const { localDescription } = this.peerConnection;
+                if (localDescription) {
+                  log('info', 'Sending answer packet back to other peer');
+                  this.sendToServer({
+                    resource: Resource.peer,
+                    targetUserId: userId,
+                    type: PeerMessageType.answer,
+                    sdp: localDescription,
+                    userId: targetUserId,
+                  });
+                  cb(localDescription);
+                } else {
+                  log('warn', 'Failed send answer because localDescription is', localDescription);
+                }
               }
-            }
-          });
+            });
         });
       })
       .catch((e) => {
-        log('error', 'Failed get user media', e.mesage);
+        log('error', 'Failed get user media', e);
         cb(null);
       });
   }
 
-  public handleVideoAnswerMsg(msg: Answer, cb: (res: 1 | 0) => any): 1 | 0 {
+  public handleVideoAnswerMsg(msg: Answer, cb: (res: 1 | 0) => any) {
     if (this.peerConnection) {
       log('info', 'Call recipient has accepted our call');
       const desc = new RTCSessionDescription(msg.sdp);
-      this.peerConnection.setRemoteDescription(desc).catch((e) => {
-        log('error', 'Error set description fo answer', e);
-        cb(1);
-        return 1;
-      });
+      this.peerConnection
+        .setRemoteDescription(desc)
+        .then(() => {
+          cb(0);
+        })
+        .catch((e) => {
+          log('error', 'Error set description for answer', e);
+          cb(1);
+        });
     } else {
       log('warn', 'Answer description mot set because peerConnection is', this.peerConnection);
       cb(1);
-      return 1;
     }
-    cb(0);
-    return 0;
   }
 
-  public handleIceCandidate({ targetUserId }: { targetUserId: number }) {
+  public handleIceCandidate({ targetUserId, userId }: { targetUserId: number; userId: number }) {
     if (!this.peerConnection) {
       log('warn', 'Failed handle ice candidate because peerConnection is', this.peerConnection);
       return;
     }
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const core = this;
-    this.peerConnection.onicecandidate = function handleICECandidateEvent() {
-      return (event: RTCPeerConnectionIceEvent) => {
-        if (event.candidate) {
-          log('info', `Outgoing ICE candidate: ${event.candidate.candidate}`);
-          core.sendToServer<PeerMessageType.candidate>({
-            type: PeerMessageType.candidate,
-            targetUserId,
-            resource: Resource.peer,
-            candidate: event.candidate,
-          });
-        }
-      };
+    this.peerConnection.onicecandidate = function handleICECandidateEvent(
+      event: RTCPeerConnectionIceEvent
+    ) {
+      if (event.candidate) {
+        log('info', `Outgoing ICE candidate: ${event.candidate.candidate}`);
+        core.sendToServer<PeerMessageType.candidate>({
+          type: PeerMessageType.candidate,
+          targetUserId,
+          userId,
+          resource: Resource.peer,
+          candidate: event.candidate,
+        });
+      }
     };
     this.peerConnection.oniceconnectionstatechange = function handleICEConnectionStateChangeEvent(
       event: Event
     ): 1 | 0 {
       if (core.peerConnection) {
-        log(
-          'info',
-          `*** ICE connection state changed to ${core.peerConnection.iceConnectionState}`
-        );
+        log('info', `ICE connection state changed to ${core.peerConnection.iceConnectionState}`);
         switch (core.peerConnection.iceConnectionState) {
           case 'closed':
           case 'failed':
@@ -235,7 +243,7 @@ class Core {
       ev: Event
     ): 1 | 0 {
       if (core.peerConnection) {
-        log('info', `*** WebRTC signaling state changed to: ${core.peerConnection.signalingState}`);
+        log('info', `WebRTC signaling state changed to: ${core.peerConnection.signalingState}`);
         switch (core.peerConnection.signalingState) {
           case 'closed':
             core.closeVideoCall();
@@ -278,7 +286,9 @@ class Core {
                   resource: Resource.peer,
                   type: PeerMessageType.offer,
                   sdp: localDescription,
+                  userId,
                 });
+                // cb(localDescription);
                 return 0;
               }
               log('warn', 'Local description is', localDescription);
@@ -291,10 +301,6 @@ class Core {
       } else {
         log('warn', 'Offer can not created that peerConnection is', core.peerConnection);
       }
-    };
-
-    this.peerConnection.ontrack = (ev: RTCTrackEvent) => {
-      log('info', 'Ontrack', ev);
     };
   }
 
@@ -318,8 +324,8 @@ class Core {
 
   public sendToServer<T extends PeerMessageType>(msg: PeerMessageValue<T>) {
     const msgJSON = JSON.stringify(msg);
-    const { type } = msg;
-    log('info', 'Sending message', { type });
+    const { type, resource } = msg;
+    log('info', 'message', msg);
     this.connection.send(msgJSON);
   }
 
