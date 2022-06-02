@@ -43,7 +43,38 @@ if (navigator.mediaDevices) {
         mimeType,
       });
 
-      // visualize(stream);
+      mediaRecorder.onstart = () => {
+        const video = document.querySelector('video');
+        video.crossOrigin = 'anonymous';
+        const mediaSource = new MediaSource();
+        const newObjectUrl = URL.createObjectURL(mediaSource);
+        video.src = newObjectUrl;
+        mediaSource.addEventListener('sourceopen', sourceOpen);
+        function sourceOpen(_) {
+          const buffer = mediaSource.addSourceBuffer(mediaRecorder.mimeType);
+          buffer.onupdate = () => {
+            console.log(buffer);
+          };
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0 && !buffer.updating) {
+              e.data
+                .arrayBuffer()
+                .then((data) => {
+                  if (!buffer.updating) {
+                    buffer.appendBuffer(data);
+                  }
+                })
+                .catch((ee) => {
+                  console.error(ee, 1);
+                });
+            }
+          };
+          timeout = setInterval(() => {
+            mediaRecorder.requestData();
+          }, 10);
+          video.play();
+        }
+      };
 
       document.querySelector('#record').onclick = function () {
         mediaRecorder.start();
@@ -61,42 +92,8 @@ if (navigator.mediaDevices) {
         record.style.color = '';
         clearInterval(timeout);
       };
-
-      mediaRecorder.onstart = () => {
-        const video = document.querySelector('video');
-        video.crossOrigin = 'anonymous';
-        const mediaSource = new MediaSource();
-        const newObjectUrl = URL.createObjectURL(mediaSource);
-        video.src = newObjectUrl;
-        mediaSource.addEventListener('sourceopen', sourceOpen);
-        function sourceOpen(_) {
-          const queue = [];
-          const buffer = mediaSource.addSourceBuffer(mimeType);
-          buffer.addEventListener('update', () => {
-            if (queue.length > 0 && !buffer.updating) {
-              buffer.appendBuffer(queue.shift());
-            }
-          });
-
-          mediaRecorder.ondataavailable = async function (e) {
-            if (e.data.size > 0) {
-              e.data.arrayBuffer().then((data) => {
-                const uIntArray = new Uint8Array(data);
-                if (!buffer.updating) {
-                  buffer.appendBuffer(uIntArray);
-                } else {
-                  queue.push(Uint8Array);
-                }
-              });
-            }
-          };
-          timeout = setInterval(() => {
-            mediaRecorder.requestData();
-          }, 10);
-        }
-      };
     })
     .catch((err) => {
-      console.log(`The following error occurred: ${err}`);
+      console.error(`The following error occurred`, err);
     });
 }
